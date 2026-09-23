@@ -70,8 +70,7 @@ def start_scheduler():
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     await message.answer(
-        "Это бот для оплаты.\n\nКоманды:\n/pay — разовый платёж\n/subscribe — оформить подписку\n/refund — вернуть последний платёж\n/status — последние платежи"
-    )
+        "Это бот для оплаты.\n\nКоманды:\n/pay — разовый платёж\n/subscribe — оформить подписку\n/refund — вернуть последний платёж\n/status — последние платежи")
 
 
 @dp.message(Command("pay"))

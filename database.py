@@ -1,8 +1,8 @@
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import psycopg
+from psycopg.rows import dict_row
+from contextlib import contextmanager
 from datetime import datetime
 from config import DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT
-
 
 DB_CONFIG = {
     "dbname": DB_NAME,
@@ -13,184 +13,137 @@ DB_CONFIG = {
 }
 
 
-def init_db():
-    conn = psycopg2.connect(**DB_CONFIG)
+@contextmanager
+def db(commit=True):
+    # Открывает соединение, отдаёт курсор, коммитит и закрывает
+    conn = psycopg.connect(**DB_CONFIG, row_factory=dict_row)
     cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS payments (
-            id SERIAL PRIMARY KEY,
-            user_id BIGINT NOT NULL,
-            label TEXT UNIQUE NOT NULL,
-            amount NUMERIC(10, 2) NOT NULL,
-            status TEXT DEFAULT 'pending',
-            operation_id TEXT,
-            sender TEXT,
-            created_at TIMESTAMP DEFAULT NOW(),
-            paid_at TIMESTAMP,
-            recurrent_token TEXT,
-            next_payment_at TIMESTAMP,
-            retry_count INTEGER DEFAULT 0,
-            is_recurrent BOOLEAN DEFAULT FALSE,
-            refunded_at TIMESTAMP,
-            refund_operation_id TEXT
-        )
-    """)
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_label ON payments(label)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_next_payment ON payments(next_payment_at)")
-    conn.commit()
-    cur.close()
-    conn.close()
+    try:
+        yield cur
+        if commit:
+            conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+
+def init_db():
+    # Создаёт таблицу payments и индексы, если их ещё нет
+    with db() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS payments (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                label TEXT UNIQUE NOT NULL,
+                amount NUMERIC(10, 2) NOT NULL,
+                status TEXT DEFAULT 'pending',
+                operation_id TEXT,
+                sender TEXT,
+                created_at TIMESTAMP DEFAULT NOW(),
+                paid_at TIMESTAMP,
+                next_payment_at TIMESTAMP,
+                retry_count INTEGER DEFAULT 0,
+                is_recurrent BOOLEAN DEFAULT FALSE,
+                refunded_at TIMESTAMP,
+                refund_operation_id TEXT
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_label ON payments(label)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_next ON payments(next_payment_at)")
 
 
 def create_payment(user_id: int, label: str, amount: float):
-    conn = psycopg2.connect(**DB_CONFIG)
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO payments (user_id, label, amount) VALUES (%s, %s, %s)",
-        (user_id, label, amount),
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
+    # Создаёт новую запись о платеже со статусом pending
+    with db() as cur:
+        cur.execute(
+            "INSERT INTO payments (user_id, label, amount) VALUES ($1, $2, $3)",
+            (user_id, label, amount),
+        )
 
 
-def get_payment_by_label(label: str) -> dict | None:
-    conn = psycopg2.connect(**DB_CONFIG)
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute(
-        "SELECT user_id, label, amount, status, operation_id FROM payments WHERE label = %s",
-        (label,),
-    )
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-    return dict(row) if row else None
+def get_payment_by_label(label: str):
+    # Возвращает платёж по метке или None
+    with db(commit=False) as cur:
+        cur.execute("SELECT * FROM payments WHERE label = $1", (label,))
+        return cur.fetchone()
 
 
-def mark_payment_success(label: str, operation_id: str):
-    conn = psycopg2.connect(**DB_CONFIG)
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE payments SET status = 'success', operation_id = %s, paid_at = %s WHERE label = %s",
-        (operation_id, datetime.now(), label),
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
+def mark_payment_success(label: str, operation_id: str, sender: str = None):
+    # Отмечает платёж как успешный и сохраняет operation_id и sender
+    with db() as cur:
+        cur.execute(
+            "UPDATE payments SET status='success', operation_id=$1, sender=$2, paid_at=$3 WHERE label=$4",
+            (operation_id, sender, datetime.now(), label),
+        )
 
 
-def get_user_payments(user_id: int, limit: int = 5) -> list[dict]:
-    conn = psycopg2.connect(**DB_CONFIG)
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute(
-        "SELECT label, amount, status, created_at FROM payments WHERE user_id = %s ORDER BY id DESC LIMIT %s",
-        (user_id, limit),
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return [dict(r) for r in rows]
+def get_user_payments(user_id: int, limit: int = 5):
+    # Возвращает последние платежи пользователя
+    with db(commit=False) as cur:
+        cur.execute(
+            "SELECT label, amount, status, created_at FROM payments WHERE user_id=$1 ORDER BY id DESC LIMIT $2",
+            (user_id, limit),
+        )
+        return cur.fetchall()
 
 
-def set_recurrent(label: str, next_payment_at: datetime, is_recurrent: bool = True):
-    # Помечает платёж как рекуррентный и назначает дату следующего списания
-    conn = psycopg2.connect(**DB_CONFIG)
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE payments SET next_payment_at = %s, is_recurrent = %s WHERE label = %s",
-        (next_payment_at, is_recurrent, label),
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
+def set_recurrent(label: str, next_payment_at: datetime):
+    # Помечает платёж как подписку и задаёт дату следующего списания
+    with db() as cur:
+        cur.execute(
+            "UPDATE payments SET next_payment_at=$1, is_recurrent=TRUE WHERE label=$2",
+            (next_payment_at, label),
+        )
 
 
-def get_payments_due_for_retry() -> list[dict]:
-    # Возвращает платежи, у которых наступила дата следующего списания
-    conn = psycopg2.connect(**DB_CONFIG)
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute("""
-        SELECT user_id, label, amount, retry_count, is_recurrent
-        FROM payments
-        WHERE is_recurrent = TRUE
-          AND next_payment_at <= NOW()
-          AND status = 'success'
-    """)
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return [dict(r) for r in rows]
+def get_payments_due_for_retry():
+    # Возвращает подписки, у которых наступил срок напоминания
+    with db(commit=False) as cur:
+        cur.execute("""
+            SELECT user_id, label, amount, retry_count
+            FROM payments
+            WHERE is_recurrent=TRUE AND next_payment_at<=NOW() AND status='success'
+        """)
+        return cur.fetchall()
 
 
 def increment_retry(label: str, next_attempt: datetime):
     # Увеличивает счётчик попыток и назначает новую дату
-    conn = psycopg2.connect(**DB_CONFIG)
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE payments SET retry_count = retry_count + 1, next_payment_at = %s WHERE label = %s",
-        (next_attempt, label),
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
+    with db() as cur:
+        cur.execute(
+            "UPDATE payments SET retry_count=retry_count+1, next_payment_at=$1 WHERE label=$2",
+            (next_attempt, label),
+        )
 
 
 def mark_recurrent_failed(label: str):
-    # Помечает рекуррентный платёж как проваленный после всех попыток
-    conn = psycopg2.connect(**DB_CONFIG)
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE payments SET is_recurrent = FALSE, status = 'recurrent_failed' WHERE label = %s",
-        (label,),
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
-
-
-def mark_payment_success(label: str, operation_id: str, sender: str = None):
-    # Отмечает платёж как успешный + сохраняет отправителя
-    conn = psycopg2.connect(**DB_CONFIG)
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE payments SET status = 'success', operation_id = %s, sender = %s, paid_at = %s WHERE label = %s",
-        (operation_id, sender, datetime.now(), label),
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
+    # Помечает подписку как проваленную после всех попыток
+    with db() as cur:
+        cur.execute(
+            "UPDATE payments SET is_recurrent=FALSE, status='recurrent_failed' WHERE label=$1",
+            (label,),
+        )
 
 
 def mark_payment_refunded(label: str, refund_operation_id: str):
-    # Помечает платёж как возвращённый
-    conn = psycopg2.connect(**DB_CONFIG)
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE payments SET status = 'refunded', refund_operation_id = %s, refunded_at = %s WHERE label = %s",
-        (refund_operation_id, datetime.now(), label),
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
+    # Отмечает платёж как возвращённый
+    with db() as cur:
+        cur.execute(
+            "UPDATE payments SET status='refunded', refund_operation_id=$1, refunded_at=$2 WHERE label=$3",
+            (refund_operation_id, datetime.now(), label),
+        )
 
 
-def get_last_successful_payment(user_id: int) -> dict | None:
-    # Возвращает последний успешный платёж пользователя, который ещё не возвращён
-    conn = psycopg2.connect(**DB_CONFIG)
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute("""
-        SELECT label, amount, operation_id, sender, paid_at
-        FROM payments
-        WHERE user_id = %s 
-          AND status = 'success'
-          AND refunded_at IS NULL
-        ORDER BY id DESC
-        LIMIT 1
-    """, (user_id,))
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-    return dict(row) if row else None
+def get_last_successful_payment(user_id: int):
+    # Возвращает последний успешный невозвращённый платёж пользователя
+    with db(commit=False) as cur:
+        cur.execute("""
+            SELECT label, amount, operation_id, sender, paid_at
+            FROM payments
+            WHERE user_id=$1 AND status='success' AND refunded_at IS NULL
+            ORDER BY id DESC LIMIT 1
+        """, (user_id,))
+        return cur.fetchone()
 
 
 init_db()

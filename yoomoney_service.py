@@ -17,10 +17,7 @@ def create_payment_link(user_id: int, amount: float, label: str) -> str:
 
 
 def make_refund(to_wallet: str, amount: float, comment: str) -> dict:
-    """
-    Возврат через YooMoney Wallet API.
-    Двухшаговый процесс: request-payment → process-payment.
-    """
+    # Возврат  request-payment -> process-payment
     headers = {"Authorization": f"Bearer {YOOMONEY_TOKEN}"}
 
     # Шаг 1: request-payment

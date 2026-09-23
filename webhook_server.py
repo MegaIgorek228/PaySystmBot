@@ -69,10 +69,7 @@ def yoomoney_notification():
     user_id = payment["user_id"]
     send_telegram_message(
         user_id,
-        f"Платёж получен!\n\n"
-        f"Сумма: {amount} ₽\n"
-        f"Заказ: {label}\n"
-        f"Операция: {operation_id}",
+        f"Платёж получен!\n\nСумма: {amount} ₽\nЗаказ: {label}\nОперация: {operation_id}",
     )
 
     print(f"Уведомление отправлено пользователю {user_id}")
