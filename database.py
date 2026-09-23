@@ -3,6 +3,7 @@ from psycopg2.extras import RealDictCursor
 from datetime import datetime
 from config import DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT
 
+
 DB_CONFIG = {
     "dbname": DB_NAME,
     "user": DB_USER,
@@ -12,13 +13,8 @@ DB_CONFIG = {
 }
 
 
-
-def get_conn():
-    return psycopg2.connect(**DB_CONFIG)
-
-
 def init_db():
-    conn = get_conn()
+    conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS payments (
@@ -47,7 +43,7 @@ def init_db():
 
 
 def create_payment(user_id: int, label: str, amount: float):
-    conn = get_conn()
+    conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO payments (user_id, label, amount) VALUES (%s, %s, %s)",
@@ -59,7 +55,7 @@ def create_payment(user_id: int, label: str, amount: float):
 
 
 def get_payment_by_label(label: str) -> dict | None:
-    conn = get_conn()
+    conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute(
         "SELECT user_id, label, amount, status, operation_id FROM payments WHERE label = %s",
@@ -72,7 +68,7 @@ def get_payment_by_label(label: str) -> dict | None:
 
 
 def mark_payment_success(label: str, operation_id: str):
-    conn = get_conn()
+    conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
     cur.execute(
         "UPDATE payments SET status = 'success', operation_id = %s, paid_at = %s WHERE label = %s",
@@ -84,7 +80,7 @@ def mark_payment_success(label: str, operation_id: str):
 
 
 def get_user_payments(user_id: int, limit: int = 5) -> list[dict]:
-    conn = get_conn()
+    conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute(
         "SELECT label, amount, status, created_at FROM payments WHERE user_id = %s ORDER BY id DESC LIMIT %s",
@@ -98,7 +94,7 @@ def get_user_payments(user_id: int, limit: int = 5) -> list[dict]:
 
 def set_recurrent(label: str, next_payment_at: datetime, is_recurrent: bool = True):
     # Помечает платёж как рекуррентный и назначает дату следующего списания
-    conn = get_conn()
+    conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
     cur.execute(
         "UPDATE payments SET next_payment_at = %s, is_recurrent = %s WHERE label = %s",
@@ -111,7 +107,7 @@ def set_recurrent(label: str, next_payment_at: datetime, is_recurrent: bool = Tr
 
 def get_payments_due_for_retry() -> list[dict]:
     # Возвращает платежи, у которых наступила дата следующего списания
-    conn = get_conn()
+    conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute("""
         SELECT user_id, label, amount, retry_count, is_recurrent
@@ -128,7 +124,7 @@ def get_payments_due_for_retry() -> list[dict]:
 
 def increment_retry(label: str, next_attempt: datetime):
     # Увеличивает счётчик попыток и назначает новую дату
-    conn = get_conn()
+    conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
     cur.execute(
         "UPDATE payments SET retry_count = retry_count + 1, next_payment_at = %s WHERE label = %s",
@@ -141,7 +137,7 @@ def increment_retry(label: str, next_attempt: datetime):
 
 def mark_recurrent_failed(label: str):
     # Помечает рекуррентный платёж как проваленный после всех попыток
-    conn = get_conn()
+    conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
     cur.execute(
         "UPDATE payments SET is_recurrent = FALSE, status = 'recurrent_failed' WHERE label = %s",
@@ -154,7 +150,7 @@ def mark_recurrent_failed(label: str):
 
 def mark_payment_success(label: str, operation_id: str, sender: str = None):
     # Отмечает платёж как успешный + сохраняет отправителя
-    conn = get_conn()
+    conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
     cur.execute(
         "UPDATE payments SET status = 'success', operation_id = %s, sender = %s, paid_at = %s WHERE label = %s",
@@ -167,7 +163,7 @@ def mark_payment_success(label: str, operation_id: str, sender: str = None):
 
 def mark_payment_refunded(label: str, refund_operation_id: str):
     # Помечает платёж как возвращённый
-    conn = get_conn()
+    conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
     cur.execute(
         "UPDATE payments SET status = 'refunded', refund_operation_id = %s, refunded_at = %s WHERE label = %s",
@@ -180,7 +176,7 @@ def mark_payment_refunded(label: str, refund_operation_id: str):
 
 def get_last_successful_payment(user_id: int) -> dict | None:
     # Возвращает последний успешный платёж пользователя, который ещё не возвращён
-    conn = get_conn()
+    conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute("""
         SELECT label, amount, operation_id, sender, paid_at

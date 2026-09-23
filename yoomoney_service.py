@@ -1,10 +1,29 @@
 import requests
-from config import YOOMONEY_TOKEN
+from urllib.parse import urlencode
+from config import YOOMONEY_RECEIVER, YOOMONEY_TOKEN
+
+
+def create_payment_link(user_id: int, amount: float, label: str) -> str:
+    """Генерирует ссылку на форму оплаты YooMoney."""
+    params = {
+        "receiver": YOOMONEY_RECEIVER,
+        "quickpay-form": "shop",
+        "targets": f"Оплата подписки (user {user_id})",
+        "paymentType": "AC",
+        "sum": f"{amount:.2f}",
+        "label": label,
+    }
+    return "https://yoomoney.ru/quickpay/confirm.xml?" + urlencode(params)
 
 
 def make_refund(to_wallet: str, amount: float, comment: str) -> dict:
+    """
+    Возврат через YooMoney Wallet API.
+    Двухшаговый процесс: request-payment → process-payment.
+    """
     headers = {"Authorization": f"Bearer {YOOMONEY_TOKEN}"}
 
+    # Шаг 1: request-payment
     try:
         r1 = requests.post(
             "https://yoomoney.ru/api/request-payment",
@@ -26,14 +45,12 @@ def make_refund(to_wallet: str, amount: float, comment: str) -> dict:
 
     data1 = r1.json()
     if data1.get("status") != "success":
-        return {
-            "success": False,
-            "operation_id": None,
-            "error": data1.get("error", "Неизвестная ошибка на шаге request-payment"),
-        }
+        return {"success": False, "operation_id": None,
+                "error": data1.get("error", "Ошибка request-payment")}
 
     request_id = data1.get("request_id")
 
+    # Шаг 2: process-payment
     try:
         r2 = requests.post(
             "https://yoomoney.ru/api/process-payment",
@@ -49,14 +66,7 @@ def make_refund(to_wallet: str, amount: float, comment: str) -> dict:
 
     data2 = r2.json()
     if data2.get("status") != "success":
-        return {
-            "success": False,
-            "operation_id": None,
-            "error": data2.get("error", "Неизвестная ошибка на шаге process-payment"),
-        }
+        return {"success": False, "operation_id": None,
+                "error": data2.get("error", "Ошибка process-payment")}
 
-    return {
-        "success": True,
-        "operation_id": data2.get("operation_id"),
-        "error": None,
-    }
+    return {"success": True, "operation_id": data2.get("operation_id"), "error": None}
