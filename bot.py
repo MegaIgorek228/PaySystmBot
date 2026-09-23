@@ -140,7 +140,7 @@ async def cmd_test_token(message: types.Message):
 
 
 async def main():
-    start_scheduler()  # ← Запускаем планировщик
+    start_scheduler()
     print("Бот запущен...")
     await dp.start_polling(bot)
 
