@@ -3,13 +3,26 @@ import uuid
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from config import BOT_TOKEN, YOOMONEY_TOKEN
+from config import BOT_TOKEN, YOOMONEY_TOKEN, YOOMONEY_RECEIVER
 from payment_service import create_payment_link
 from database import create_payment, get_user_payments, set_recurrent
 from scheduler import start_scheduler
 from database import get_last_successful_payment, mark_payment_refunded
 from refund_service import make_refund
+from urllib.parse import urlencode
 
+
+def create_payment_link(user_id: int, amount: float, label: str) -> str:
+    # Генерирует ссылку на форму оплаты YooMoney без HTTP-запроса
+    params = {
+        "receiver": YOOMONEY_RECEIVER,
+        "quickpay-form": "shop",
+        "targets": f"Оплата подписки (user {user_id})",
+        "paymentType": "AC",
+        "sum": f"{amount:.2f}",
+        "label": label,
+    }
+    return "https://yoomoney.ru/quickpay/confirm.xml?" + urlencode(params)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 

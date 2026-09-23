@@ -3,11 +3,8 @@ from apscheduler.triggers.interval import IntervalTrigger
 from datetime import datetime, timedelta
 import requests
 from config import BOT_TOKEN
-from database import (
-    get_payments_due_for_retry,
-    increment_retry,
-    mark_recurrent_failed,
-)
+from database import (get_payments_due_for_retry, increment_retry, mark_recurrent_failed)
+from bot import create_payment_link
 
 scheduler = AsyncIOScheduler()
 MAX_RETRIES = 2
@@ -47,7 +44,6 @@ async def check_due_payments():
             )
             print(f"Рекуррентный платёж {label} помечен как проваленный")
         else:
-            from payment_service import create_payment_link
             link = create_payment_link(user_id, float(amount), f"{label}_retry{retry_count + 1}")
 
             next_attempt = datetime.now() + timedelta(days=1)

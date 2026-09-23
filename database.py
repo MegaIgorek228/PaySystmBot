@@ -97,7 +97,7 @@ def get_user_payments(user_id: int, limit: int = 5) -> list[dict]:
 
 
 def set_recurrent(label: str, next_payment_at: datetime, is_recurrent: bool = True):
-    """Помечает платёж как рекуррентный и назначает дату следующего списания."""
+    # Помечает платёж как рекуррентный и назначает дату следующего списания
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -110,7 +110,7 @@ def set_recurrent(label: str, next_payment_at: datetime, is_recurrent: bool = Tr
 
 
 def get_payments_due_for_retry() -> list[dict]:
-    """Возвращает платежи, у которых наступила дата следующего списания."""
+    # Возвращает платежи, у которых наступила дата следующего списания
     conn = get_conn()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute("""
@@ -127,7 +127,7 @@ def get_payments_due_for_retry() -> list[dict]:
 
 
 def increment_retry(label: str, next_attempt: datetime):
-    """Увеличивает счётчик попыток и назначает новую дату."""
+    # Увеличивает счётчик попыток и назначает новую дату
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -140,7 +140,7 @@ def increment_retry(label: str, next_attempt: datetime):
 
 
 def mark_recurrent_failed(label: str):
-    """Помечает рекуррентный платёж как проваленный после всех попыток."""
+    # Помечает рекуррентный платёж как проваленный после всех попыток
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -153,7 +153,7 @@ def mark_recurrent_failed(label: str):
 
 
 def mark_payment_success(label: str, operation_id: str, sender: str = None):
-    """Отмечает платёж как успешный + сохраняет отправителя."""
+    # Отмечает платёж как успешный + сохраняет отправителя
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -166,7 +166,7 @@ def mark_payment_success(label: str, operation_id: str, sender: str = None):
 
 
 def mark_payment_refunded(label: str, refund_operation_id: str):
-    """Помечает платёж как возвращённый."""
+    # Помечает платёж как возвращённый
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -179,7 +179,7 @@ def mark_payment_refunded(label: str, refund_operation_id: str):
 
 
 def get_last_successful_payment(user_id: int) -> dict | None:
-    """Возвращает последний успешный платёж пользователя, который ещё не возвращён."""
+    # Возвращает последний успешный платёж пользователя, который ещё не возвращён
     conn = get_conn()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute("""
